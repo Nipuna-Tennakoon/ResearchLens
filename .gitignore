@@ -10,3 +10,9 @@ wheels/
 .venv
 .env
 data/
+
+# Milvus docker volumes
+volumes/
+
+# Test cache
+.pytest_cache/
