@@ -166,6 +166,10 @@ def _render_answer(answer: Answer, show_sources: bool) -> None:
     console.print(table)
 
 
+EXIT_WORDS = {"exit", "quit", "q"}
+BACK_WORDS = {"back", "menu"}
+
+
 @app.command()
 def ask(
     question: str = typer.Argument(None, help="Question to answer. Omit for an interactive session."),
@@ -180,17 +184,32 @@ def ask(
         _answer_once(engine, question, sources)
         return
 
-    console.print("Interactive retrieval — type a question, or 'exit' to quit.\n")
+    _ask_loop(engine, sources, from_menu=False)
+
+
+def _ask_loop(engine: RagEngine, sources: bool, from_menu: bool) -> bool:
+    """Question-and-answer session. Returns True when the user wants to quit the app."""
+    hint = "type a question, 'exit' to quit"
+    if from_menu:
+        hint += ", 'back' to return to the menu"
+    console.print(f"Interactive retrieval — {hint}.\n")
+
     while True:
         try:
             user_question = typer.prompt("Question").strip()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, typer.Abort):
             console.print()
-            return
-        if user_question.lower() in {"exit", "quit", "q"}:
-            return
+            return True
+
+        command = user_question.lower()
+        if command in EXIT_WORDS:
+            console.print("Bye.")
+            return True
+        if from_menu and command in BACK_WORDS:
+            return False
         if not user_question:
             continue
+
         _answer_once(engine, user_question, sources, fatal=False)
         console.print()
 
@@ -283,14 +302,15 @@ def _menu() -> None:
     while True:
         try:
             choice = typer.prompt("Select an option", default="1").strip()
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, typer.Abort):
             console.print()
             return
 
         if choice == "1":
             _run_ingestion(_prompt_for_folder())
         elif choice == "2":
-            ask(question=None, sources=True)
+            if _retrieval_from_menu():
+                return
         elif choice == "3":
             status()
         elif choice in {"4", "exit", "quit", "q"}:
@@ -300,6 +320,13 @@ def _menu() -> None:
             continue
         console.print()
         console.print(Panel(MENU, title="ResearchLens", border_style="cyan"))
+
+
+def _retrieval_from_menu() -> bool:
+    """Run a Q&A session from the menu. Returns True if the user asked to quit."""
+    settings = _settings()
+    store = _store(settings)
+    return _ask_loop(RagEngine(settings, store), sources=True, from_menu=True)
 
 
 @app.callback(invoke_without_command=True)
