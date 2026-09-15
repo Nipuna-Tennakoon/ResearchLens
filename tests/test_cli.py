@@ -10,7 +10,8 @@ runner = CliRunner()
 
 @pytest.fixture
 def cli(monkeypatch, settings, patched):
-    monkeypatch.setattr("researchlens.cli._settings", lambda: settings)
+    # Patch the raw loader so startup preloading sees the same settings too.
+    monkeypatch.setattr("researchlens.cli._load_settings", lambda: settings)
     return settings
 
 
@@ -151,3 +152,32 @@ def test_a_question_is_still_answered_before_exiting(cli, sample_pdf):
     assert result.exit_code == 0, result.output
     assert "Answer" in result.output
     assert "Bye." in result.output
+
+
+def test_ingest_then_ask_loads_the_model_only_once(cli, sample_pdf, patched):
+    from conftest import BuildCounter
+
+    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+    runner.invoke(app, ["ask", "What is SARIMA?"])
+
+    assert BuildCounter.calls == 1
+
+
+def test_repeated_retrieval_from_the_menu_reuses_the_model(cli, sample_pdf, patched):
+    from conftest import BuildCounter
+
+    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+    # Enter retrieval, go back to the menu, enter it again, then quit.
+    result = runner.invoke(app, [], input="2\nback\n2\nWhat is SARIMA?\nexit\n")
+
+    assert result.exit_code == 0, result.output
+    assert BuildCounter.calls == 1
+
+
+def test_commands_that_never_embed_do_not_load_the_model(cli, patched):
+    from conftest import BuildCounter
+
+    runner.invoke(app, ["status"])
+    runner.invoke(app, ["reset"], input="n\n")
+
+    assert BuildCounter.calls == 0

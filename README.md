@@ -22,6 +22,10 @@ Embeddings run locally by default with the BERT sentence-transformer
 `all-MiniLM-L6-v2` (384 dimensions), downloaded on first use. OpenAI is only
 called for title extraction during ingestion and for writing the answer.
 
+The model takes a while to load, so the CLI starts loading it on a background
+thread at start-up and ingestion and retrieval share that one instance. Commands
+that never embed anything (`status`, `reset`) do not load it at all.
+
 ## Usage
 
 Run without arguments for the interactive menu:
@@ -94,7 +98,7 @@ The file name is used as the document title instead of an LLM-generated one.
 src/researchlens/
   cli.py             Typer commands and the interactive menu
   config.py          Settings, loaded from the environment
-  embeddings.py      Builds the embedding model shared by both pipelines
+  embeddings.py      Loads the embedding model once, in the background, and shares it
   ingestion.py       PDFs -> cleaned text -> chunks -> embeddings
   normalization.py   Unicode, hyphenation and whitespace clean-up
   store.py           Milvus schema, upserts and vector search

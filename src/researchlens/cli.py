@@ -13,6 +13,7 @@ from rich.table import Table
 
 from researchlens import __version__
 from researchlens.config import Settings
+from researchlens.embeddings import get_embed_model, is_ready, preload
 from researchlens.errors import ResearchLensError
 from researchlens.ingestion import IngestionReport, Ingestor, discover_pdfs
 from researchlens.retrieval import Answer, RagEngine
@@ -42,11 +43,27 @@ def _fail(message: str) -> typer.Exit:
     return typer.Exit(code=1)
 
 
+def _load_settings() -> Settings:
+    """Single place settings come from, so preloading and commands always agree."""
+    return Settings.load()
+
+
 def _settings() -> Settings:
     try:
-        return Settings.load()
+        return _load_settings()
     except ResearchLensError as exc:
         raise _fail(str(exc)) from exc
+
+
+def _await_embeddings(settings: Settings) -> None:
+    """Block until the shared embedding model is in memory."""
+    if is_ready(settings):
+        return
+    with console.status(f"Loading embedding model {settings.embed_model}..."):
+        try:
+            get_embed_model(settings)
+        except ResearchLensError as exc:
+            raise _fail(str(exc)) from exc
 
 
 def _store(settings: Settings) -> VectorStore:
@@ -89,6 +106,8 @@ def _run_ingestion(folder: Path) -> IngestionReport:
         store.check_dimension()
     except ResearchLensError as exc:
         raise _fail(str(exc)) from exc
+
+    _await_embeddings(settings)
 
     ingestor = Ingestor(settings, store)
     with Progress(
@@ -178,6 +197,7 @@ def ask(
     """Ask a question about the indexed papers."""
     settings = _settings()
     store = _store(settings)
+    _await_embeddings(settings)
     engine = RagEngine(settings, store)
 
     if question:
@@ -326,6 +346,7 @@ def _retrieval_from_menu() -> bool:
     """Run a Q&A session from the menu. Returns True if the user asked to quit."""
     settings = _settings()
     store = _store(settings)
+    _await_embeddings(settings)
     return _ask_loop(RagEngine(settings, store), sources=True, from_menu=True)
 
 
@@ -340,8 +361,22 @@ def main_callback(
     if version:
         console.print(f"researchlens {__version__}")
         raise typer.Exit()
+
+    # ingest, ask and the menu all embed text; start loading the model now so it
+    # is ready by the time the user has answered the first prompt.
+    if ctx.invoked_subcommand in (None, "ingest", "ask"):
+        _preload_embeddings()
+
     if ctx.invoked_subcommand is None:
         _menu()
+
+
+def _preload_embeddings() -> None:
+    """Best effort: a bad config is reported later, by the command that needs it."""
+    try:
+        preload(_load_settings())
+    except ResearchLensError:
+        pass
 
 
 def main() -> None:

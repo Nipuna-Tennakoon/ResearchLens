@@ -14,7 +14,7 @@ from llama_index.core.schema import BaseNode
 from llama_index.readers.file import PyMuPDFReader
 
 from researchlens.config import Settings
-from researchlens.embeddings import build_embed_model
+from researchlens.embeddings import get_embed_model
 from researchlens.errors import IngestionError
 from researchlens.normalization import DataNormalizer
 from researchlens.store import Chunk, VectorStore
@@ -63,7 +63,7 @@ class Ingestor:
         ]
         if settings.extract_titles:
             transformations.append(TitleExtractor())
-        transformations.append(build_embed_model(settings))
+        transformations.append(get_embed_model(settings))
 
         self._pipeline = IngestionPipeline(transformations=transformations)
 

@@ -9,6 +9,7 @@ import pytest
 from llama_index.core.schema import TransformComponent
 from pymilvus.exceptions import MilvusException
 
+from researchlens import embeddings
 from researchlens.config import Settings
 
 EMBED_DIM = 8
@@ -163,15 +164,30 @@ def settings() -> Settings:
     )
 
 
+class BuildCounter:
+    """Counts how many times the real model builder was invoked."""
+
+    calls = 0
+
+    @classmethod
+    def build(cls, settings):
+        cls.calls += 1
+        return FakeEmbedding()
+
+
 @pytest.fixture
 def patched(monkeypatch):
     FakeMilvusClient.reset()
+    FakeLLM.last_prompt = None
+    BuildCounter.calls = 0
+    embeddings.reset_cache()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setattr("researchlens.store.MilvusClient", FakeMilvusClient)
-    monkeypatch.setattr("researchlens.ingestion.build_embed_model", lambda s: FakeEmbedding())
-    monkeypatch.setattr("researchlens.retrieval.build_embed_model", lambda s: FakeEmbedding())
+    # Patch the builder, not the call sites, so the shared-instance cache is real.
+    monkeypatch.setattr("researchlens.embeddings._build_embed_model", BuildCounter.build)
     monkeypatch.setattr("researchlens.retrieval.ChatOpenAI", FakeLLM)
-    return FakeLLM
+    yield FakeLLM
+    embeddings.reset_cache()
 
 
 @pytest.fixture

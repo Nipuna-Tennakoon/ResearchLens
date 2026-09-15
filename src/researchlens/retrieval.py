@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from langchain_openai import ChatOpenAI
 
 from researchlens.config import Settings
-from researchlens.embeddings import build_embed_model
+from researchlens.embeddings import get_embed_model
 from researchlens.errors import ResearchLensError
 from researchlens.store import SearchHit, VectorStore
 
@@ -39,8 +39,8 @@ class RagEngine:
         self.settings = settings
         self.store = store
         settings.require_openai_key("the answer model")
-        # Same model ingestion used, or the query vectors would not be comparable.
-        self._embed_model = build_embed_model(settings)
+        # Same instance ingestion used, or the query vectors would not be comparable.
+        self._embed_model = get_embed_model(settings)
         self._llm = ChatOpenAI(model=settings.llm_model, temperature=0)
 
     def retrieve(self, question: str) -> list[SearchHit]:
@@ -62,7 +62,6 @@ class RagEngine:
             raise ResearchLensError("The question is empty.")
 
         hits = self.retrieve(question)
-        print(hits)
         if not hits:
             return Answer(
                 text="I don't know — no relevant passages were found in the indexed papers.",
