@@ -1,4 +1,4 @@
-"""Retrieval: embed the question, rank chunks from Milvus, answer with an LLM."""
+"""Retrieval: embed the question, rerank chunks from Milvus, answer with an LLM."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from langchain_openai import ChatOpenAI
 
+from researchlens import reranking
 from researchlens.config import Settings
 from researchlens.embeddings import get_embed_model
 from researchlens.errors import ResearchLensError
@@ -44,7 +45,11 @@ class RagEngine:
         self._llm = ChatOpenAI(model=settings.llm_model, temperature=settings.temperature)
 
     def retrieve(self, question: str) -> list[SearchHit]:
-        """Search the collection and keep the highest scoring chunks."""
+        """Search the collection, rerank the candidates, and keep the best chunks.
+
+        The vector search casts a wide net (`search_limit`); the cross-encoder
+        then decides which `top_k` of those actually answer the question.
+        """
         if not self.store.exists():
             raise ResearchLensError(
                 f"Collection '{self.settings.collection_name}' does not exist yet. "
@@ -53,8 +58,14 @@ class RagEngine:
 
         self.store.check_dimension()
         query_embedding = self._embed_model.get_query_embedding(question)
-        hits = self.store.search(query_embedding, limit=self.settings.search_limit)
-        return sorted(hits, key=lambda hit: hit.score, reverse=True)[: self.settings.top_k]
+        candidates = self.store.search(query_embedding, limit=self.settings.search_limit)
+
+        if self.settings.rerank:
+            ranked = reranking.rerank(self.settings, question, candidates)
+        else:
+            ranked = sorted(candidates, key=lambda hit: hit.score, reverse=True)
+
+        return ranked[: self.settings.top_k]
 
     def answer(self, question: str) -> Answer:
         question = question.strip()

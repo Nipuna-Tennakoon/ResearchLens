@@ -27,6 +27,16 @@ def _int_env(name: str, default: int) -> int:
         raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a number, got {raw!r}") from exc
+
+
 @dataclass(frozen=True)
 class Settings:
     """Everything the ingestion and retrieval pipelines need to run."""
@@ -39,13 +49,16 @@ class Settings:
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embed_dim: int = 384
     llm_model: str = "gpt-4o-mini"
-    temperatrure: float = 0
+    temperature: float = 0.0
     chunk_size: int = 150
     chunk_overlap: int = 10
     extract_titles: bool = True
 
     search_limit: int = 10
     top_k: int = 3
+
+    rerank: bool = True
+    rerank_model: str = "BAAI/bge-reranker-base"
 
     @property
     def needs_openai_for_ingestion(self) -> bool:
@@ -81,10 +94,12 @@ class Settings:
             embed_model=os.getenv("EMBED_MODEL", default_model),
             embed_dim=_int_env("EMBED_DIM", default_dim),
             llm_model=os.getenv("LLM_MODEL", cls.llm_model),
-            temperature=os.getenv("TEMPERATURE", cls.temperature),
+            temperature=_float_env("TEMPERATURE", cls.temperature),
             chunk_size=_int_env("CHUNK_SIZE", cls.chunk_size),
             chunk_overlap=_int_env("CHUNK_OVERLAP", cls.chunk_overlap),
             extract_titles=os.getenv("EXTRACT_TITLES", "true").lower() != "false",
             search_limit=_int_env("SEARCH_LIMIT", cls.search_limit),
             top_k=_int_env("TOP_K", cls.top_k),
+            rerank=os.getenv("RERANK", "true").lower() != "false",
+            rerank_model=os.getenv("RERANK_MODEL", cls.rerank_model),
         )

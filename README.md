@@ -7,8 +7,8 @@ It has two components:
 
 - **Data ingestion** — read PDFs, clean the text, chunk it, embed it and store the
   vectors in Milvus.
-- **Retrieval** — embed a question, search the vectors, rank the best chunks and
-  answer from them with an LLM.
+- **Retrieval** — embed a question, search the vectors, rerank the candidates with
+  a cross-encoder and answer from the best ones with an LLM.
 
 ## Setup
 
@@ -66,6 +66,20 @@ uv run researchlens --verbose ingest ./data             # INFO level logs
 existing rows instead of duplicating them. A PDF that fails to parse is reported at
 the end of the run without stopping the other files.
 
+## How retrieval ranks
+
+Vector search scores the question and each chunk separately, which is fast enough
+to run over a whole collection but only approximate. A cross-encoder reads the
+question and a chunk *together* and scores that pair directly — much more
+accurate, far too slow to run over everything.
+
+ResearchLens uses both: Milvus returns `SEARCH_LIMIT` candidates, the
+`BAAI/bge-reranker-base` cross-encoder rescores each one against the question,
+and the best `TOP_K` become the LLM's context. Both scores are shown in the
+sources table, so you can see where the two disagree.
+
+Reranking costs roughly 0.4s per candidate on CPU. Set `RERANK=false` to skip it.
+
 ## Configuration
 
 Every setting has a working default and is overridable through the environment or
@@ -81,7 +95,11 @@ likely to change:
 | `EMBED_MODEL` / `EMBED_DIM` | `all-MiniLM-L6-v2` / `384` | Embedding model and its dimension. Both default to the right pair for the provider, so setting `EMBED_PROVIDER=openai` alone gives `text-embedding-3-small` / `1536` |
 | `LLM_MODEL` | `gpt-4o-mini` | Model that writes the answer |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `150` / `10` | Sentence splitter settings |
-| `TOP_K` | `3` | Chunks passed to the LLM as context |
+| `SEARCH_LIMIT` | `10` | Candidates fetched from Milvus and handed to the reranker |
+| `TOP_K` | `3` | Chunks kept after reranking and passed to the LLM as context |
+| `RERANK` | `true` | Set `false` to skip the cross-encoder and rank by vector similarity alone |
+| `RERANK_MODEL` | `BAAI/bge-reranker-base` | Cross-encoder used for reranking |
+| `TEMPERATURE` | `0` | Sampling temperature for the answer model |
 | `EXTRACT_TITLES` | `true` | Derive a document title per chunk with an LLM. Set `false` for faster, cheaper ingestion — the file name is used instead |
 
 Ingestion and retrieval always share one embedding model, so query vectors match
@@ -108,7 +126,9 @@ src/researchlens/
   ingestion.py       PDFs -> cleaned text -> chunks -> embeddings
   normalization.py   Unicode, hyphenation and whitespace clean-up
   store.py           Milvus schema, upserts and vector search
-  retrieval.py       Embed, search, rank, prompt the LLM
+  retrieval.py       Embed, search, rerank, prompt the LLM
+  reranking.py       Cross-encoder reranking of the candidate chunks
+  model_loading.py   HuggingFace cache lookup and background model loading
 notebooks/           The experiments this CLI was built from
 tests/               Pipeline tests using in-memory fakes
 ```

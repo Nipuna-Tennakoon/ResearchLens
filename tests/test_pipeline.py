@@ -1,5 +1,6 @@
 """End-to-end ingestion and retrieval over the real sample PDF, with fake APIs."""
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -86,3 +87,37 @@ def test_embedding_dimension_mismatch_is_reported(settings, patched, papers_dir)
 
     assert len(report.failures) == 1
     assert "dimensions" in report.failures[0][1]
+
+
+def test_retrieval_reranks_the_candidate_set(settings, patched, papers_dir):
+    """The reranker sees search_limit candidates and narrows them to top_k."""
+    from conftest import FakeCrossEncoder
+
+    store = VectorStore(settings)
+    Ingestor(settings, store).ingest_folder(papers_dir)
+
+    hits = RagEngine(settings, store).retrieve("What parameters does SARIMA use?")
+
+    assert len(hits) == settings.top_k
+    assert FakeCrossEncoder.predictions == 1
+    assert all(h.rerank_score is not None for h in hits)
+    # Ordered by cross-encoder score, not vector similarity.
+    assert [h.rerank_score for h in hits] == sorted(
+        [h.rerank_score for h in hits], reverse=True
+    )
+
+
+def test_reranking_can_be_turned_off(settings, patched, papers_dir):
+    from conftest import FakeCrossEncoder
+
+    no_rerank = dataclasses.replace(settings, rerank=False)
+    store = VectorStore(no_rerank)
+    Ingestor(no_rerank, store).ingest_folder(papers_dir)
+
+    hits = RagEngine(no_rerank, store).retrieve("What parameters does SARIMA use?")
+
+    assert len(hits) == no_rerank.top_k
+    assert FakeCrossEncoder.predictions == 0
+    assert all(h.rerank_score is None for h in hits)
+    # Falls back to vector similarity order.
+    assert [h.score for h in hits] == sorted([h.score for h in hits], reverse=True)

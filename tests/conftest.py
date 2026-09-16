@@ -9,7 +9,7 @@ import pytest
 from llama_index.core.schema import TransformComponent
 from pymilvus.exceptions import MilvusException
 
-from researchlens import embeddings
+from researchlens import embeddings, reranking
 from researchlens.config import Settings
 
 EMBED_DIM = 8
@@ -164,6 +164,30 @@ def settings() -> Settings:
     )
 
 
+class FakeCrossEncoder:
+    """Scores a pair by how many words the question and the chunk share.
+
+    Deterministic and offline, but still a real signal, so tests can prove the
+    reranker actually reorders what the vector search returned.
+    """
+
+    builds = 0
+    predictions = 0
+
+    def predict(self, pairs, **kwargs):
+        FakeCrossEncoder.predictions += 1
+        scores = []
+        for question, text in pairs:
+            shared = set(question.lower().split()) & set(text.lower().split())
+            scores.append(float(len(shared)))
+        return scores
+
+    @classmethod
+    def build(cls, settings):
+        cls.builds += 1
+        return cls()
+
+
 class BuildCounter:
     """Counts how many times the real model builder was invoked."""
 
@@ -180,14 +204,19 @@ def patched(monkeypatch):
     FakeMilvusClient.reset()
     FakeLLM.last_prompt = None
     BuildCounter.calls = 0
+    FakeCrossEncoder.builds = 0
+    FakeCrossEncoder.predictions = 0
     embeddings.reset_cache()
+    reranking.reset_cache()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setattr("researchlens.store.MilvusClient", FakeMilvusClient)
     # Patch the builder, not the call sites, so the shared-instance cache is real.
     monkeypatch.setattr("researchlens.embeddings._build_embed_model", BuildCounter.build)
+    monkeypatch.setattr("researchlens.reranking._build_reranker", FakeCrossEncoder.build)
     monkeypatch.setattr("researchlens.retrieval.ChatOpenAI", FakeLLM)
     yield FakeLLM
     embeddings.reset_cache()
+    reranking.reset_cache()
 
 
 @pytest.fixture

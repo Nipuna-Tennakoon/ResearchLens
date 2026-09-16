@@ -59,6 +59,8 @@ class SearchHit:
     page: int
     chunk_index: int
     text: str
+    rerank_score: float | None = None
+    """Cross-encoder score, set only once the chunk has been reranked."""
 
 
 def _batched(items: list[Chunk], size: int) -> Iterator[list[Chunk]]:

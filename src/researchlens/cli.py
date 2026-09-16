@@ -20,6 +20,7 @@ from researchlens.embeddings import (
     preload,
 )
 from researchlens.errors import ResearchLensError
+from researchlens import reranking
 from researchlens.ingestion import IngestionReport, Ingestor, discover_pdfs
 from researchlens.retrieval import Answer, RagEngine
 from researchlens.store import VectorStore
@@ -77,6 +78,17 @@ def _await_embeddings(settings: Settings) -> None:
     with console.status(message):
         try:
             get_embed_model(settings)
+        except ResearchLensError as exc:
+            raise _fail(str(exc)) from exc
+
+
+def _await_reranker(settings: Settings) -> None:
+    """Block until the cross-encoder is in memory, if reranking is enabled."""
+    if not settings.rerank or reranking.is_ready(settings):
+        return
+    with console.status(f"Loading reranker {settings.rerank_model}..."):
+        try:
+            reranking.get_reranker(settings)
         except ResearchLensError as exc:
             raise _fail(str(exc)) from exc
 
@@ -188,15 +200,23 @@ def _render_answer(answer: Answer, show_sources: bool) -> None:
     if not show_sources or not answer.sources:
         return
 
+    reranked = any(hit.rerank_score is not None for hit in answer.sources)
+
     table = Table(title="Sources", show_lines=False, header_style="bold")
     table.add_column("#", width=3)
-    table.add_column("Score", width=7)
+    if reranked:
+        table.add_column("Rerank", width=8)
+    table.add_column("Vector", width=7)
     table.add_column("Page", width=5)
     table.add_column("Document", overflow="fold")
     table.add_column("Excerpt", overflow="fold")
     for rank, hit in enumerate(answer.sources, start=1):
         excerpt = hit.text if len(hit.text) <= 160 else hit.text[:157] + "..."
-        table.add_row(str(rank), f"{hit.score:.4f}", str(hit.page), hit.title, excerpt)
+        row = [str(rank)]
+        if reranked:
+            row.append("—" if hit.rerank_score is None else f"{hit.rerank_score:.4f}")
+        row += [f"{hit.score:.4f}", str(hit.page), hit.title, excerpt]
+        table.add_row(*row)
     console.print(table)
 
 
@@ -213,6 +233,7 @@ def ask(
     settings = _settings()
     store = _store(settings)
     _await_embeddings(settings)
+    _await_reranker(settings)
     engine = RagEngine(settings, store)
 
     if question:
@@ -293,6 +314,11 @@ def status() -> None:
         if stored_dim is not None and stored_dim != settings.embed_dim:
             table.add_row("[red]Stored vectors[/red]", f"[red]{stored_dim}d — mismatch[/red]")
     table.add_row("LLM", settings.llm_model)
+    table.add_row(
+        "Reranker",
+        f"{settings.rerank_model} (cross-encoder)" if settings.rerank else "off",
+    )
+    table.add_row("Retrieval", f"{settings.search_limit} candidates -> top {settings.top_k}")
     console.print(Panel(table, title="ResearchLens status", border_style="cyan"))
 
     if titles:
@@ -362,6 +388,7 @@ def _retrieval_from_menu() -> bool:
     settings = _settings()
     store = _store(settings)
     _await_embeddings(settings)
+    _await_reranker(settings)
     return _ask_loop(RagEngine(settings, store), sources=True, from_menu=True)
 
 
@@ -389,9 +416,11 @@ def main_callback(
 def _preload_embeddings() -> None:
     """Best effort: a bad config is reported later, by the command that needs it."""
     try:
-        preload(_load_settings())
+        settings = _load_settings()
     except ResearchLensError:
-        pass
+        return
+    preload(settings)
+    reranking.preload(settings)
 
 
 def main() -> None:
