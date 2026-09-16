@@ -196,3 +196,12 @@ def sample_pdf() -> Path:
     if not pdfs:
         pytest.skip("no sample PDF in data/")
     return pdfs[0]
+
+
+@pytest.fixture
+def papers_dir(sample_pdf: Path, tmp_path: Path) -> Path:
+    """A folder holding exactly one PDF, so counts do not depend on data/."""
+    folder = tmp_path / "papers"
+    folder.mkdir()
+    (folder / sample_pdf.name).write_bytes(sample_pdf.read_bytes())
+    return folder

@@ -15,8 +15,8 @@ def cli(monkeypatch, settings, patched):
     return settings
 
 
-def test_ingest_then_status_then_ask(cli, sample_pdf):
-    result = runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_ingest_then_status_then_ask(cli, papers_dir):
+    result = runner.invoke(app, ["ingest", str(papers_dir)])
     assert result.exit_code == 0, result.output
     assert "Ingestion complete" in result.output
 
@@ -34,8 +34,8 @@ def test_ingest_reports_a_missing_folder(cli, tmp_path):
     assert "Folder not found" in result.output
 
 
-def test_ingest_prompts_for_the_path_when_omitted(cli, sample_pdf):
-    result = runner.invoke(app, ["ingest"], input=f"{sample_pdf.parent}\n")
+def test_ingest_prompts_for_the_path_when_omitted(cli, papers_dir):
+    result = runner.invoke(app, ["ingest"], input=f"{papers_dir}\n")
 
     assert result.exit_code == 0, result.output
     assert "Path to the data folder" in result.output
@@ -62,8 +62,8 @@ def test_ask_without_ingestion_explains_what_to_do(cli):
     assert "Run data ingestion first" in result.output
 
 
-def test_menu_runs_ingestion_then_exits(cli, sample_pdf):
-    result = runner.invoke(app, [], input=f"1\n{sample_pdf.parent}\n4\n")
+def test_menu_runs_ingestion_then_exits(cli, papers_dir):
+    result = runner.invoke(app, [], input=f"1\n{papers_dir}\n4\n")
 
     assert result.exit_code == 0, result.output
     assert "Data ingestion" in result.output
@@ -88,8 +88,8 @@ def _menu_renders(output: str) -> int:
     return output.count("Status — inspect the vector database")
 
 
-def test_exit_in_question_mode_leaves_the_application(cli, sample_pdf):
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_exit_in_question_mode_leaves_the_application(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
 
     result = runner.invoke(app, [], input="2\nexit\n")
 
@@ -99,8 +99,8 @@ def test_exit_in_question_mode_leaves_the_application(cli, sample_pdf):
     assert _menu_renders(result.output) == 1
 
 
-def test_back_in_question_mode_returns_to_the_menu(cli, sample_pdf):
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_back_in_question_mode_returns_to_the_menu(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
 
     result = runner.invoke(app, [], input="2\nback\n4\n")
 
@@ -108,8 +108,8 @@ def test_back_in_question_mode_returns_to_the_menu(cli, sample_pdf):
     assert _menu_renders(result.output) == 2
 
 
-def test_quit_and_q_also_exit(cli, sample_pdf):
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_quit_and_q_also_exit(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
 
     for word in ("quit", "q"):
         result = runner.invoke(app, [], input=f"2\n{word}\n")
@@ -117,8 +117,8 @@ def test_quit_and_q_also_exit(cli, sample_pdf):
         assert _menu_renders(result.output) == 1
 
 
-def test_exit_ends_the_standalone_ask_command(cli, sample_pdf):
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_exit_ends_the_standalone_ask_command(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
 
     result = runner.invoke(app, ["ask"], input="exit\n")
 
@@ -126,8 +126,8 @@ def test_exit_ends_the_standalone_ask_command(cli, sample_pdf):
     assert "Bye." in result.output
 
 
-def test_end_of_input_leaves_the_application(cli, sample_pdf):
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_end_of_input_leaves_the_application(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
 
     result = runner.invoke(app, [], input="2\n")  # no further input: EOF
 
@@ -135,8 +135,8 @@ def test_end_of_input_leaves_the_application(cli, sample_pdf):
     assert _menu_renders(result.output) == 1
 
 
-def test_the_question_prompt_advertises_exit(cli, sample_pdf):
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_the_question_prompt_advertises_exit(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
 
     result = runner.invoke(app, [], input="2\nexit\n")
 
@@ -144,8 +144,8 @@ def test_the_question_prompt_advertises_exit(cli, sample_pdf):
     assert "'back'" in result.output
 
 
-def test_a_question_is_still_answered_before_exiting(cli, sample_pdf):
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+def test_a_question_is_still_answered_before_exiting(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
 
     result = runner.invoke(app, [], input="2\nWhat is SARIMA?\nexit\n")
 
@@ -154,19 +154,19 @@ def test_a_question_is_still_answered_before_exiting(cli, sample_pdf):
     assert "Bye." in result.output
 
 
-def test_ingest_then_ask_loads_the_model_only_once(cli, sample_pdf, patched):
+def test_ingest_then_ask_loads_the_model_only_once(cli, papers_dir, patched):
     from conftest import BuildCounter
 
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+    runner.invoke(app, ["ingest", str(papers_dir)])
     runner.invoke(app, ["ask", "What is SARIMA?"])
 
     assert BuildCounter.calls == 1
 
 
-def test_repeated_retrieval_from_the_menu_reuses_the_model(cli, sample_pdf, patched):
+def test_repeated_retrieval_from_the_menu_reuses_the_model(cli, papers_dir, patched):
     from conftest import BuildCounter
 
-    runner.invoke(app, ["ingest", str(sample_pdf.parent)])
+    runner.invoke(app, ["ingest", str(papers_dir)])
     # Enter retrieval, go back to the menu, enter it again, then quit.
     result = runner.invoke(app, [], input="2\nback\n2\nWhat is SARIMA?\nexit\n")
 

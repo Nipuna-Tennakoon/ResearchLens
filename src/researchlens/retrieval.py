@@ -41,7 +41,7 @@ class RagEngine:
         settings.require_openai_key("the answer model")
         # Same instance ingestion used, or the query vectors would not be comparable.
         self._embed_model = get_embed_model(settings)
-        self._llm = ChatOpenAI(model=settings.llm_model, temperature=0)
+        self._llm = ChatOpenAI(model=settings.llm_model, temperature=settings.temperature)
 
     def retrieve(self, question: str) -> list[SearchHit]:
         """Search the collection and keep the highest scoring chunks."""

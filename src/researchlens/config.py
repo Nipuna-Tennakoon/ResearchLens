@@ -39,7 +39,7 @@ class Settings:
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embed_dim: int = 384
     llm_model: str = "gpt-4o-mini"
-
+    temperatrure: float = 0
     chunk_size: int = 150
     chunk_overlap: int = 10
     extract_titles: bool = True
@@ -81,6 +81,7 @@ class Settings:
             embed_model=os.getenv("EMBED_MODEL", default_model),
             embed_dim=_int_env("EMBED_DIM", default_dim),
             llm_model=os.getenv("LLM_MODEL", cls.llm_model),
+            temperature=os.getenv("TEMPERATURE", cls.temperature),
             chunk_size=_int_env("CHUNK_SIZE", cls.chunk_size),
             chunk_overlap=_int_env("CHUNK_OVERLAP", cls.chunk_overlap),
             extract_titles=os.getenv("EXTRACT_TITLES", "true").lower() != "false",

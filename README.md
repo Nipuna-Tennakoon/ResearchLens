@@ -26,6 +26,12 @@ The model takes a while to load, so the CLI starts loading it on a background
 thread at start-up and ingestion and retrieval share that one instance. Commands
 that never embed anything (`status`, `reset`) do not load it at all.
 
+It is downloaded once into the standard HuggingFace cache
+(`~/.cache/huggingface/hub`, or `$HF_HOME`) and loaded from there on every later
+run — ResearchLens checks the cache first and only contacts the Hub when
+something is genuinely missing. Skipping that check costs about 90 seconds per
+start-up in revalidation requests.
+
 ## Usage
 
 Run without arguments for the interactive menu:

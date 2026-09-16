@@ -29,9 +29,9 @@ def test_discover_pdfs_reports_a_missing_folder(tmp_path):
         discover_pdfs(tmp_path / "nope")
 
 
-def test_ingest_then_answer(settings, patched, sample_pdf):
+def test_ingest_then_answer(settings, patched, papers_dir):
     store = VectorStore(settings)
-    report = Ingestor(settings, store).ingest_folder(sample_pdf.parent)
+    report = Ingestor(settings, store).ingest_folder(papers_dir)
 
     assert report.files_processed == 1
     assert report.failures == []
@@ -49,12 +49,12 @@ def test_ingest_then_answer(settings, patched, sample_pdf):
         assert hit.text in patched.last_prompt
 
 
-def test_reingesting_the_same_folder_does_not_duplicate(settings, patched, sample_pdf):
+def test_reingesting_the_same_folder_does_not_duplicate(settings, patched, papers_dir):
     store = VectorStore(settings)
     ingestor = Ingestor(settings, store)
 
-    first = ingestor.ingest_folder(sample_pdf.parent)
-    ingestor.ingest_folder(sample_pdf.parent)
+    first = ingestor.ingest_folder(papers_dir)
+    ingestor.ingest_folder(papers_dir)
 
     assert store.count() == first.chunks_written
 
@@ -78,11 +78,11 @@ def test_answering_before_ingestion_explains_what_to_do(settings, patched):
         engine.answer("anything")
 
 
-def test_embedding_dimension_mismatch_is_reported(settings, patched, sample_pdf):
+def test_embedding_dimension_mismatch_is_reported(settings, patched, papers_dir):
     mismatched = type(settings)(**{**settings.__dict__, "embed_dim": 1536})
     store = VectorStore(mismatched)
 
-    report = Ingestor(mismatched, store).ingest_folder(sample_pdf.parent)
+    report = Ingestor(mismatched, store).ingest_folder(papers_dir)
 
     assert len(report.failures) == 1
     assert "dimensions" in report.failures[0][1]

@@ -13,7 +13,12 @@ from rich.table import Table
 
 from researchlens import __version__
 from researchlens.config import Settings
-from researchlens.embeddings import get_embed_model, is_ready, preload
+from researchlens.embeddings import (
+    get_embed_model,
+    is_model_cached,
+    is_ready,
+    preload,
+)
 from researchlens.errors import ResearchLensError
 from researchlens.ingestion import IngestionReport, Ingestor, discover_pdfs
 from researchlens.retrieval import Answer, RagEngine
@@ -59,7 +64,17 @@ def _await_embeddings(settings: Settings) -> None:
     """Block until the shared embedding model is in memory."""
     if is_ready(settings):
         return
-    with console.status(f"Loading embedding model {settings.embed_model}..."):
+
+    if settings.embed_provider == "huggingface" and not is_model_cached(settings.embed_model):
+        console.print(
+            f"Downloading [cyan]{settings.embed_model}[/cyan] from HuggingFace — "
+            "this happens once, then it is served from the local cache."
+        )
+        message = f"Downloading {settings.embed_model}..."
+    else:
+        message = f"Loading embedding model {settings.embed_model}..."
+
+    with console.status(message):
         try:
             get_embed_model(settings)
         except ResearchLensError as exc:
