@@ -34,11 +34,20 @@ start-up in revalidation requests.
 
 ## Usage
 
-Run without arguments for the interactive menu:
+Run without arguments for the interactive menu. The wordmark animates while the
+models load in the background, then the menu appears with everything warm:
 
 ```bash
 uv run researchlens
 ```
+
+```
+                     R e s e a r c h L e n s
+                retrieval-augmented research assistant
+```
+
+Pass `--no-splash` to skip the animation. It is skipped automatically when output
+is not a terminal, so piping and scripting are unaffected.
 
 ```
 ╭──────────────────────── ResearchLens v0.1.0 ─────────────────────────╮
@@ -56,7 +65,7 @@ uv run researchlens ingest ./data                       # ingest a folder of PDF
 EXTRACT_TITLES=false uv run researchlens ingest ./data  # faster, no OpenAI calls
 uv run researchlens ask "What parameters does SARIMA use?"
 uv run researchlens ask                                 # interactive Q&A session
-uv run researchlens ask "..." --no-sources              # answer only
+uv run researchlens ask "..." --sources                  # also list the chunks used
 uv run researchlens status                              # what is indexed
 uv run researchlens reset --yes                         # drop the collection
 uv run researchlens --verbose ingest ./data             # INFO level logs
@@ -75,8 +84,8 @@ accurate, far too slow to run over everything.
 
 ResearchLens uses both: Milvus returns `SEARCH_LIMIT` candidates, the
 `BAAI/bge-reranker-base` cross-encoder rescores each one against the question,
-and the best `TOP_K` become the LLM's context. Both scores are shown in the
-sources table, so you can see where the two disagree.
+and the best `TOP_K` become the LLM's context. Pass `--sources` to print those
+chunks with both scores, so you can see where the two rankings disagree.
 
 Reranking costs roughly 0.4s per candidate on CPU. Set `RERANK=false` to skip it.
 
@@ -121,6 +130,7 @@ The file name is used as the document title instead of an LLM-generated one.
 ```
 src/researchlens/
   cli.py             Typer commands and the interactive menu
+  splash.py          Animated start-up wordmark
   config.py          Settings, loaded from the environment
   embeddings.py      Loads the embedding model once, in the background, and shares it
   ingestion.py       PDFs -> cleaned text -> chunks -> embeddings

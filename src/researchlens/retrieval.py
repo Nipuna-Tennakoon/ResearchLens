@@ -88,10 +88,17 @@ class RagEngine:
 def _message_text(response) -> str:
     """Read the text off a LangChain message across minor API differences."""
     text = getattr(response, "text", None)
-    if callable(text):
-        text = text()
-    if isinstance(text, str) and text:
-        return text
+
+    # LangChain's .text is a str subclass that is still callable for backwards
+    # compatibility, so test for the string first: calling it works but warns.
+    if isinstance(text, str):
+        if text:
+            return str(text)
+    elif callable(text):  # the older API, where .text() really was a method
+        called = text()
+        if isinstance(called, str) and called:
+            return called
+
     content = getattr(response, "content", "")
     if isinstance(content, list):  # content blocks
         return "".join(

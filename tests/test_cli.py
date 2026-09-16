@@ -24,7 +24,7 @@ def test_ingest_then_status_then_ask(cli, papers_dir):
     result = runner.invoke(app, ["ask", "What parameters does SARIMA use?"])
     assert result.exit_code == 0, result.output
     assert "Answer" in result.output
-    assert "Sources" in result.output
+    assert "Sources" not in result.output  # the table is opt-in
 
 
 def test_ingest_reports_a_missing_folder(cli, tmp_path):
@@ -181,3 +181,96 @@ def test_commands_that_never_embed_do_not_load_the_model(cli, patched):
     runner.invoke(app, ["reset"], input="n\n")
 
     assert BuildCounter.calls == 0
+
+
+# --------------------------------------------------------------------------- #
+# Start-up splash
+# --------------------------------------------------------------------------- #
+
+
+def test_models_are_ready_only_when_both_have_loaded(cli, patched):
+    from researchlens import embeddings, reranking
+    from researchlens.cli import _models_ready
+
+    assert _models_ready(cli) is False
+
+    embeddings.get_embed_model(cli)
+    assert _models_ready(cli) is False  # reranker still outstanding
+
+    reranking.get_reranker(cli)
+    assert _models_ready(cli) is True
+
+
+def test_readiness_ignores_the_reranker_when_it_is_disabled(cli, patched):
+    import dataclasses
+
+    from researchlens import embeddings
+    from researchlens.cli import _models_ready
+
+    off = dataclasses.replace(cli, rerank=False)
+    embeddings.get_embed_model(off)
+
+    assert _models_ready(off) is True
+
+
+def test_a_non_terminal_run_skips_the_animation(cli, patched, monkeypatch):
+    """CliRunner is not a TTY, so the splash must not run."""
+    called = []
+    monkeypatch.setattr(
+        "researchlens.cli.splash.show_splash",
+        lambda *a, **k: called.append(1),
+    )
+
+    result = runner.invoke(app, [], input="4\n")
+
+    assert result.exit_code == 0, result.output
+    assert called == []
+
+
+def test_no_splash_option_skips_the_animation(cli, patched, monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        "researchlens.cli.splash.show_splash",
+        lambda *a, **k: called.append(1),
+    )
+
+    result = runner.invoke(app, ["--no-splash"], input="4\n")
+
+    assert result.exit_code == 0, result.output
+    assert called == []
+
+
+def test_the_menu_still_appears_after_start_up(cli, patched):
+    result = runner.invoke(app, [], input="4\n")
+
+    assert "Data ingestion" in result.output
+    assert "Select an option" in result.output
+
+
+def test_the_answer_is_shown_without_the_sources_table(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
+
+    result = runner.invoke(app, ["ask", "What is SARIMA?"])
+
+    assert "Answer" in result.output
+    assert "Sources" not in result.output
+    assert "Rerank" not in result.output
+
+
+def test_the_sources_table_can_be_requested(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
+
+    result = runner.invoke(app, ["ask", "What is SARIMA?", "--sources"])
+
+    assert "Answer" in result.output
+    assert "Sources" in result.output
+
+
+def test_the_menu_session_does_not_show_sources(cli, papers_dir):
+    runner.invoke(app, ["ingest", str(papers_dir)])
+
+    result = runner.invoke(app, [], input="2\nWhat is SARIMA?\nexit\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Answer" in result.output
+    assert "Sources" not in result.output

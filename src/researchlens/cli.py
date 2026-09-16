@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from researchlens import __version__
+from researchlens import __version__, reranking, splash
 from researchlens.config import Settings
 from researchlens.embeddings import (
     get_embed_model,
@@ -20,7 +20,6 @@ from researchlens.embeddings import (
     preload,
 )
 from researchlens.errors import ResearchLensError
-from researchlens import reranking
 from researchlens.ingestion import IngestionReport, Ingestor, discover_pdfs
 from researchlens.retrieval import Answer, RagEngine
 from researchlens.store import VectorStore
@@ -36,9 +35,12 @@ app = typer.Typer(
 
 
 def _configure_logging(verbose: bool) -> None:
+    # force=True: an imported library may already have installed a root handler,
+    # and plain basicConfig would silently do nothing in that case.
     logging.basicConfig(
         level=logging.INFO if verbose else logging.WARNING,
         format="%(asctime)s - %(levelname)s - %(message)s",
+        force=True,
     )
     for noisy in ("httpx", "httpcore", "openai", "pymilvus"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
@@ -227,7 +229,9 @@ BACK_WORDS = {"back", "menu"}
 @app.command()
 def ask(
     question: str = typer.Argument(None, help="Question to answer. Omit for an interactive session."),
-    sources: bool = typer.Option(True, "--sources/--no-sources", help="Show the retrieved chunks."),
+    sources: bool = typer.Option(
+        False, "--sources", help="Also show the chunks the answer was drawn from."
+    ),
 ) -> None:
     """Ask a question about the indexed papers."""
     settings = _settings()
@@ -389,7 +393,7 @@ def _retrieval_from_menu() -> bool:
     store = _store(settings)
     _await_embeddings(settings)
     _await_reranker(settings)
-    return _ask_loop(RagEngine(settings, store), sources=True, from_menu=True)
+    return _ask_loop(RagEngine(settings, store), sources=False, from_menu=True)
 
 
 @app.callback(invoke_without_command=True)
@@ -397,6 +401,9 @@ def main_callback(
     ctx: typer.Context,
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show INFO level logs."),
     version: bool = typer.Option(False, "--version", help="Show the version and exit."),
+    no_splash: bool = typer.Option(
+        False, "--no-splash", help="Skip the start-up animation."
+    ),
 ) -> None:
     """Run the interactive menu when no subcommand is given."""
     _configure_logging(verbose)
@@ -404,13 +411,25 @@ def main_callback(
         console.print(f"researchlens {__version__}")
         raise typer.Exit()
 
-    # ingest, ask and the menu all embed text; start loading the model now so it
-    # is ready by the time the user has answered the first prompt.
-    if ctx.invoked_subcommand in (None, "ingest", "ask"):
-        _preload_embeddings()
-
     if ctx.invoked_subcommand is None:
+        # The interactive app: animate the wordmark while the models load, then
+        # drop straight into the menu with everything already warm.
+        try:
+            settings = _load_settings()
+        except ResearchLensError as exc:
+            raise _fail(str(exc)) from exc
+
+        if no_splash or not console.is_terminal:
+            _preload_embeddings()
+        else:
+            _start_up(settings)
         _menu()
+        return
+
+    # ingest and ask embed text too; start loading now so the model is ready by
+    # the time the user has answered the first prompt.
+    if ctx.invoked_subcommand in ("ingest", "ask"):
+        _preload_embeddings()
 
 
 def _preload_embeddings() -> None:
@@ -421,6 +440,25 @@ def _preload_embeddings() -> None:
         return
     preload(settings)
     reranking.preload(settings)
+
+
+def _models_ready(settings: Settings) -> bool:
+    """True once every model this run needs has finished loading — or failed.
+
+    A failure still counts as ready: the error is raised later, by the command
+    that actually needs the model, so the splash can never spin forever.
+    """
+    if not is_ready(settings):
+        return False
+    return not settings.rerank or reranking.is_ready(settings)
+
+
+def _start_up(settings: Settings) -> None:
+    """Load the models behind the animated wordmark, with library noise muted."""
+    with splash.quiet_stderr():
+        preload(settings)
+        reranking.preload(settings)
+        splash.show_splash(console, lambda: _models_ready(settings))
 
 
 def main() -> None:
